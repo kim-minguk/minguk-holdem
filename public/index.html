@@ -137,6 +137,59 @@ input[type=range]{padding:0;width:130px}
 .cards .card .faceCenter .faceRank{font-size:18px}
 .cards .card .faceCenter .faceSuit{font-size:16px}
 
+
+.actionTag{
+  margin-top:6px;
+  display:inline-block;
+  padding:5px 10px;
+  border-radius:999px;
+  background:#f3cf63;
+  color:#111;
+  font-size:13px;
+  font-weight:1000;
+  border:1px solid #fff2a8;
+  box-shadow:0 0 10px #0005
+}
+.actionTag.win{font-size:16px;padding:7px 12px;
+  background:#fff1a8;
+  color:#7b5200;
+  font-size:14px;
+  border:2px solid #ffd34e;
+  box-shadow:0 0 14px #ffd34e88
+}
+.actionToast{
+  position:absolute;
+  left:50%;
+  top:58%;
+  transform:translate(-50%,-50%);
+  z-index:8;
+  background:#071b12ee;
+  border:2px solid #e9c46a;
+  border-radius:14px;
+  padding:9px 16px;
+  font-size:20px;
+  font-weight:1000;
+  color:#ffe39a;
+  opacity:0;
+  pointer-events:none;
+  transition:opacity .18s ease
+}
+.actionToast.show{opacity:1}
+
+
+.msg.winnerMsg{
+  margin-top:10px;
+  display:inline-block;
+  padding:8px 14px;
+  border-radius:12px;
+  background:#fff1a8;
+  color:#6e4b00;
+  border:2px solid #ffd34e;
+  font-size:20px;
+  font-weight:1000;
+  box-shadow:0 0 14px #ffd34e66
+}
+
 </style>
 </head>
 <body>
@@ -174,7 +227,7 @@ input[type=range]{padding:0;width:130px}
       <div class="row" style="justify-content:space-between">
         <div>방 <b id="rcode"></b> · <span id="phase"></span> · <b id="people"></b></div>
         <div class="row">
-          <button id="copy">초대 링크 복사</button>
+          <button id="copy">초대 링크 복사</button><button class="r" id="leaveRoom">나가기</button>
           <span id="waiting" class="waiting"></span>
           <button class="g" id="start">🎮 게임 시작</button>
         </div>
@@ -191,7 +244,7 @@ input[type=range]{padding:0;width:130px}
       </div>
       <div id="s0" class="seat s0"></div><div id="s1" class="seat s1"></div><div id="s2" class="seat s2"></div>
       <div id="s3" class="seat s3"></div><div id="s4" class="seat s4"></div><div id="s5" class="seat s5"></div>
-      <div class="ctrl">
+      <div class="actionToast" id="actionToast"></div><div class="ctrl">
         <button class="r" id="fold">FOLD</button>
         <button id="call">CHECK</button>
         <div class="raisebox"><input type="range" id="range" step="10"><span id="rv"></span><button class="b" id="raise">RAISE</button></div>
@@ -210,14 +263,21 @@ input[type=range]{padding:0;width:130px}
 <script src="/socket.io/socket.io.js"></script>
 <script>
 const s=io(),$=x=>document.getElementById(x),money=n=>(n||0).toLocaleString("ko-KR");
-let st=null, prev=null, soundOn=true, voiceOn=true, audioCtx=null, chatInitialized=false,turnTick=null;
+let st=null, prev=null, soundOn=true, voiceOn=true, audioCtx=null, chatInitialized=false,turnTick=null,lastSpokenCountdown=null;
 function speak(text){
   if(!voiceOn||!("speechSynthesis" in window)||!text)return;
   try{
-    speechSynthesis.cancel();
+    const synth=window.speechSynthesis;
+    synth.resume();
     const u=new SpeechSynthesisUtterance(text);
-    u.lang="ko-KR";u.rate=1.05;u.pitch=1;
-    speechSynthesis.speak(u);
+    u.lang="ko-KR";
+    u.rate=1.0;
+    u.pitch=1;
+    const voices=synth.getVoices();
+    const ko=voices.find(v=>/ko-KR/i.test(v.lang))||voices.find(v=>/^ko/i.test(v.lang));
+    if(ko)u.voice=ko;
+    synth.cancel();
+    setTimeout(()=>synth.speak(u),30);
   }catch(e){}
 }
 const q=new URLSearchParams(location.search);
@@ -297,6 +357,22 @@ $("allin").onclick=()=>{fx("click");s.emit("act",{type:"allin"})};
 $("range").oninput=e=>$("rv").textContent=money(+e.target.value);
 $("copy").onclick=async()=>{let u=location.origin+location.pathname+"?room="+st.code;try{await navigator.clipboard.writeText(u);alert("초대 링크를 복사했습니다.")}catch(e){prompt("이 링크를 복사하세요",u)}};
 
+$("leaveRoom").onclick=()=>{
+  if(!st||st.phase==="playing")return;
+  if(confirm("이 방에서 나가시겠습니까?")){
+    s.emit("leaveRoom");
+  }
+};
+s.on("leftRoom",()=>{
+  st=null;prev=null;chatInitialized=false;lastSpokenCountdown=null;
+  $("game").classList.add("hide");
+  $("lobby").classList.remove("hide");
+  $("chatList").innerHTML="";
+  history.replaceState(null,"",location.pathname);
+  $("normalLobby").classList.remove("hide");
+  $("inviteLobby").classList.add("hide");
+});
+
 function sendChat(){
   unlockAudio();const t=$("chatText").value.trim();if(!t)return;s.emit("chat",{text:t});$("chatText").value="";
 }
@@ -304,6 +380,7 @@ $("sendChat").onclick=sendChat;
 $("chatText").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();sendChat()}});
 
 function appendChat(m,play=false){
+  if(m.system)return;
   const list=$("chatList"),row=document.createElement("div");row.className="chatMsg"+(m.system?" system":"");
   const who=document.createElement("span");who.className="who";who.textContent=m.system?"●":m.name;
   const text=document.createElement("span");text.textContent=(m.system?" ":" : ")+m.text;
@@ -313,7 +390,18 @@ function appendChat(m,play=false){
   if(play&&!m.system)fx("chat");
 }
 s.on("chat",m=>appendChat(m,true));
-s.on("announce",m=>speak(m.text));
+s.on("announce",m=>{
+  unlockAudio();
+  fx("chat");
+  const t=$("actionToast");
+  if(t){
+    t.textContent=m.text;
+    t.classList.add("show");
+    clearTimeout(window.__actionToastTimer);
+    window.__actionToastTimer=setTimeout(()=>t.classList.remove("show"),1400);
+  }
+  speak(m.text);
+});
 s.on("err",m=>alert(m));
 s.on("state",x=>{
   prev=st;st=x;
@@ -337,14 +425,39 @@ function soundFromState(a,b){
   if(b.phase==="showdown"&&a.phase!=="showdown")fx("win");
 }
 
+
+function speakCountdownNumber(n){
+  if(!voiceOn||!("speechSynthesis" in window))return;
+  const words={5:"Five",4:"Four",3:"Three",2:"Two",1:"One"};
+  const word=words[n];
+  if(!word)return;
+  try{
+    const synth=window.speechSynthesis;
+    synth.resume();
+    const u=new SpeechSynthesisUtterance(word);
+    u.lang="en-US";u.rate=.9;u.pitch=1;
+    const voices=synth.getVoices();
+    const en=voices.find(v=>/en-US/i.test(v.lang))||voices.find(v=>/^en/i.test(v.lang));
+    if(en)u.voice=en;
+    synth.cancel();
+    setTimeout(()=>synth.speak(u),20);
+  }catch(e){}
+}
 function updateTurnTimer(){
   if(!st){return}
   const e=$("turnTimer");
   if(st.phase!=="playing"||st.turn<0){e.textContent="";e.className="timerWrap";return}
   if(st.countdownValue!==null&&st.countdownValue!==undefined){
-    e.textContent=`자동 다이까지 ${st.countdownValue}`;
+    const n=Number(st.countdownValue);
+    e.textContent=`자동 다이까지 ${n}`;
     e.className="timerWrap timerDanger";
+    if(n>=1&&n<=5&&lastSpokenCountdown!==n){
+      lastSpokenCountdown=n;
+      speakCountdownNumber(n);
+    }
     return;
+  }else{
+    lastSpokenCountdown=null;
   }
   const remain=Math.max(0,Math.ceil(((st.turnDeadline||0)-Date.now())/1000));
   if(remain>5){
@@ -365,9 +478,9 @@ function render(){updateTurnTimer();
   $("phase").textContent=st.phase==="lobby"?"대기실":st.phase==="playing"?"게임 중":"핸드 종료";
   $("pot").textContent="POT "+money(st.pot);$("board").innerHTML=st.board.map(c=>card(c)).join("");
   $("street").textContent=({preflop:"프리플랍",flop:"플랍",turn:"턴",river:"리버"}[st.street]||"대기")+" · #"+st.handNo+" · "+st.settings.sb+"/"+st.settings.bb;
-  $("msg").textContent=st.msg||"";
+  $("msg").textContent=st.msg||"";$("msg").classList.toggle("winnerMsg",!!st.msg&&st.msg.startsWith("우승 "));
   const canStart=st.host&&st.phase!=="playing"&&connected>=2;
-  $("start").style.display=canStart?"block":"none";
+  $("start").style.display=canStart?"block":"none";$("leaveRoom").style.display=st.phase==="playing"?"none":"block";
   $("waiting").textContent=st.host&&st.phase!=="playing"&&connected<2?"친구 1명 이상 입장하면 시작 가능":"";
   let url=location.origin+location.pathname+"?room="+st.code;$("invite").textContent="초대: "+url;
   const mePlayer=st.players.find(p=>p.token===st.me);
@@ -391,7 +504,7 @@ function render(){updateTurnTimer();
     }else if(p.inHand&&st.phase==="playing"){
       cs=card(null,true)+card(null,true);
     }
-    e.innerHTML=`<div class="cards">${cs}</div><div class="box"><b>${p.name}${p.token===dealerToken?" 🔘":""}${p.token===st.me?" (나)":""}</b><br><span style="color:#f6d365">${money(p.chips)}칩</span><br><span class="small">${p.bet?"BET "+money(p.bet):""} ${p.allin?"ALL-IN":""} ${p.folded?"FOLD":""} ${!p.connected?"OFF":""}</span>${p.lastAction?`<br><span class="actionTag">${p.lastAction}</span>`:""}</div>`;
+    e.innerHTML=`<div class="cards">${cs}</div><div class="box"><b>${p.name}${p.token===dealerToken?" 🔘":""}${p.token===st.me?" (나)":""}</b><br><span style="color:#f6d365">${money(p.chips)}칩</span><br><span class="small">${p.bet?"BET "+money(p.bet):""} ${p.allin?"ALL-IN":""} ${p.folded?"FOLD":""} ${!p.connected?"OFF":""}</span>${p.lastAction?`<br><span class="actionTag${p.lastAction.startsWith("우승")?" win":""}">${p.lastAction}</span>`:""}</div>`;
   }
   const currentPlayer=(st.turn>=0&&st.players[st.turn])?st.players[st.turn]:null;
   $("turnBanner").textContent=st.phase==="playing"&&currentPlayer?`${currentPlayer.name}님 차례`:(st.phase==="showdown"?"핸드 종료":"대기 중");
