@@ -11,6 +11,47 @@ const rv=r=>({2:2,3:3,4:4,5:5,6:6,7:7,8:8,9:9,10:10,J:11,Q:12,K:13,A:14})[r];
 function combos(a,k){let o=[];function f(s,p){if(p.length===k){o.push([...p]);return}for(let i=s;i<a.length;i++){p.push(a[i]);f(i+1,p);p.pop()}}f(0,[]);return o}
 function e5(c){let v=c.map(x=>rv(x.r)).sort((a,b)=>b-a),ct={};v.forEach(x=>ct[x]=(ct[x]||0)+1);let u=[...new Set(v)].sort((a,b)=>b-a);if(u[0]===14)u.push(1);let sh=0;for(let i=0;i<=u.length-5;i++)if(u[i]-u[i+4]===4){sh=u[i];break}let fl=c.every(x=>x.s===c[0].s),g=Object.entries(ct).map(([v,c])=>({v:+v,c})).sort((a,b)=>b.c-a.c||b.v-a.v),cat,n,t;
 if(fl&&sh){cat=8;n=sh===14?"로열/스트레이트 플러시":"스트레이트 플러시";t=[sh]}else if(g[0].c===4){cat=7;n="포카드";t=[g[0].v,g[1].v]}else if(g[0].c===3&&g[1].c===2){cat=6;n="풀하우스";t=[g[0].v,g[1].v]}else if(fl){cat=5;n="플러시";t=v}else if(sh){cat=4;n="스트레이트";t=[sh]}else if(g[0].c===3){cat=3;n="트리플";t=[g[0].v,...g.filter(x=>x.c===1).map(x=>x.v).sort((a,b)=>b-a)]}else if(g[0].c===2&&g[1].c===2){cat=2;n="투페어";let p=[g[0].v,g[1].v].sort((a,b)=>b-a);t=[...p,g.find(x=>x.c===1).v]}else if(g[0].c===2){cat=1;n="원페어";t=[g[0].v,...g.filter(x=>x.c===1).map(x=>x.v).sort((a,b)=>b-a)]}else{cat=0;n="하이카드";t=v}let sc=cat*1e10;t.forEach((x,i)=>sc+=x*Math.pow(15,5-i));return{score:sc,name:n}}
+
+function rankText(v){
+  return ({14:"A",13:"K",12:"Q",11:"J",10:"10",9:"9",8:"8",7:"7",6:"6",5:"5",4:"4",3:"3",2:"2"})[v]||String(v);
+}
+function straightHigh(vals){
+  let u=[...new Set(vals)].sort((a,b)=>b-a);
+  if(u.includes(14))u.push(1);
+  for(let i=0;i<=u.length-5;i++){
+    if(u[i]-u[i+4]===4)return u[i];
+  }
+  return 0;
+}
+function winnerHandLabel(cards){
+  const e=e7(cards);
+  const vals=cards.map(c=>rv(c.r));
+  const counts={}; vals.forEach(v=>counts[v]=(counts[v]||0)+1);
+  const suits={};
+  cards.forEach(c=>(suits[c.s]||(suits[c.s]=[])).push(rv(c.r)));
+  let prefix="";
+  if(e.name.includes("플러시") && !e.name.includes("스트레이트")){
+    const flushVals=Object.values(suits).find(a=>a.length>=5)||vals;
+    prefix=rankText(Math.max(...flushVals));
+  }else if(e.name==="투페어"){
+    const pairs=Object.entries(counts).filter(([v,c])=>c>=2).map(([v])=>+v).sort((a,b)=>b-a);
+    prefix=rankText(pairs[0]||Math.max(...vals));
+  }else if(e.name==="원페어"){
+    const p=Object.entries(counts).filter(([v,c])=>c>=2).map(([v])=>+v).sort((a,b)=>b-a)[0];
+    prefix=rankText(p||Math.max(...vals));
+  }else if(e.name==="트리플"||e.name==="풀하우스"){
+    const t=Object.entries(counts).filter(([v,c])=>c>=3).map(([v])=>+v).sort((a,b)=>b-a)[0];
+    prefix=rankText(t||Math.max(...vals));
+  }else if(e.name==="포카드"){
+    const q=Object.entries(counts).filter(([v,c])=>c>=4).map(([v])=>+v).sort((a,b)=>b-a)[0];
+    prefix=rankText(q||Math.max(...vals));
+  }else if(e.name.includes("스트레이트")){
+    prefix=rankText(straightHigh(vals)||Math.max(...vals));
+  }else{
+    prefix=rankText(Math.max(...vals));
+  }
+  return `${prefix}${e.name.replace("로열/","")}`;
+}
 function e7(c){let b={score:-1,name:""};for(const x of combos(c,5)){let e=e5(x);if(e.score>b.score)b=e}return b}
 const next=(r,i,pred)=>{for(let k=1;k<=r.players.length;k++){let j=(i+k)%r.players.length;if(pred(r.players[j]))return j}return-1};
 const live=r=>r.players.filter(p=>p.inHand&&!p.folded), actors=r=>r.players.filter(p=>p.inHand&&!p.folded&&!p.allin);
@@ -38,10 +79,16 @@ function start(r){let eligible=r.players.filter(p=>p.connected&&p.chips>0);if(el
 r.players.forEach(p=>{p.inHand=p.connected&&p.chips>0;p.folded=false;p.allin=false;p.bet=0;p.total=0;p.cards=[];p.lastAction=""});r.dealer=next(r,r.dealer<0?r.players.length-1:r.dealer,p=>p.inHand);for(let z=0;z<2;z++)for(let k=1;k<=r.players.length;k++){let i=(r.dealer+k)%r.players.length;if(r.players[i].inHand)r.players[i].cards.push(r.deck.pop())}
 let sb=next(r,r.dealer,p=>p.inHand),bb=next(r,sb,p=>p.inHand);post(r,sb,r.settings.sb);post(r,bb,r.settings.bb);r.currentBet=Math.max(r.players[sb].bet,r.players[bb].bet);r.turn=next(r,bb,p=>p.inHand&&!p.allin);r.phase="playing";emit(r);auto(r);beginTurnTimer(r)}
 const roundDone=r=>{let a=actors(r);return !a.length||a.every(p=>p.bet===r.currentBet&&r.acted.has(p.token))};
-function awardOne(r){clearTurnTimer(r);collect(r);let w=live(r)[0];if(w){w.chips+=r.pot;r.msg=`${w.name} 승리 +${r.pot.toLocaleString()} 칩`;announce(r,`${w.name}님 승리`)}r.pot=0;r.phase="showdown";r.turn=-1;emit(r)}
+function awardOne(r){clearTurnTimer(r);collect(r);let w=live(r)[0];if(w){w.chips+=r.pot;w.lastAction=`우승 ${w.name}`;r.msg=`우승 ${w.name}`;announce(r,`우승 ${w.name}`)}r.pot=0;r.phase="showdown";r.turn=-1;emit(r)}
 function showdown(r){clearTurnTimer(r);collect(r);let active=r.players.filter(p=>p.inHand), levels=[...new Set(active.map(p=>p.total).filter(x=>x>0))].sort((a,b)=>a-b),prev=0,desc=[];
-for(const level of levels){let participants=active.filter(p=>p.total>=level),amount=(level-prev)*participants.length,cont=participants.filter(p=>!p.folded);if(amount>0&&cont.length){let ev=cont.map(p=>({p,e:e7([...p.cards,...r.board])})),mx=Math.max(...ev.map(x=>x.e.score)),ws=ev.filter(x=>x.e.score===mx),share=Math.floor(amount/ws.length),rem=amount-share*ws.length;ws.forEach((x,i)=>x.p.chips+=share+(i===0?rem:0));desc.push(`${ws.map(x=>x.p.name+"("+x.e.name+")").join(", ")} +${amount.toLocaleString()}`)}prev=level}
-r.msg=desc.join(" / ");announce(r,"쇼다운. "+r.msg);r.pot=0;r.phase="showdown";r.turn=-1;emit(r)}
+for(const level of levels){let participants=active.filter(p=>p.total>=level),amount=(level-prev)*participants.length,cont=participants.filter(p=>!p.folded);if(amount>0&&cont.length){let ev=cont.map(p=>({p,e:e7([...p.cards,...r.board])})),mx=Math.max(...ev.map(x=>x.e.score)),ws=ev.filter(x=>x.e.score===mx),share=Math.floor(amount/ws.length),rem=amount-share*ws.length;ws.forEach((x,i)=>{
+      x.p.chips+=share+(i===0?rem:0);
+      x.p.lastAction=`우승 ${x.p.name} ${winnerHandLabel([...x.p.cards,...r.board])}`;
+    });
+    desc.push(`${ws.map(x=>x.p.name+"("+x.e.name+")").join(", ")} +${amount.toLocaleString()}`)}prev=level}
+const winTexts=r.players.filter(p=>p.lastAction&&p.lastAction.startsWith("우승 ")).map(p=>p.lastAction);
+  r.msg=winTexts.join(" / ");
+  announce(r,r.msg);r.pot=0;r.phase="showdown";r.turn=-1;emit(r)}
 function advance(r){if(live(r).length<=1)return awardOne(r);collect(r);if(r.street==="preflop"){r.street="flop";r.board.push(r.deck.pop(),r.deck.pop(),r.deck.pop());announce(r,"플랍 오픈")}else if(r.street==="flop"){r.street="turn";r.board.push(r.deck.pop());announce(r,"턴 오픈")}else if(r.street==="turn"){r.street="river";r.board.push(r.deck.pop());announce(r,"리버 오픈")}else return showdown(r);r.turn=next(r,r.dealer,p=>p.inHand&&!p.folded&&!p.allin);emit(r);auto(r);beginTurnTimer(r)}
 function auto(r){if(r.phase==="playing"&&!actors(r).length)setTimeout(()=>advance(r),400)}
 function action(r,t,type,amount){
@@ -52,7 +99,6 @@ function action(r,t,type,amount){
 
   if(type==="fold"){
     p.folded=true; r.acted.add(t); p.lastAction="다이";
-    addChat(r,"SYSTEM",`${p.name} · 다이`,true);
     announce(r,"다이");
   } else if(type==="call"){
     let v=Math.min(call,p.chips);
@@ -61,11 +107,9 @@ function action(r,t,type,amount){
     r.acted.add(t);
     if(call===0){
       p.lastAction="체크";
-      addChat(r,"SYSTEM",`${p.name} · 체크`,true);
       announce(r,"체크");
     }else{
-      p.lastAction=`콜 ${v.toLocaleString()}`;
-      addChat(r,"SYSTEM",`${p.name} · 콜 ${v.toLocaleString()}`,true);
+      p.lastAction=`콜 ${v.toLocaleString()}원`;
       announce(r,`콜 ${v.toLocaleString()}원`);
     }
   } else if(type==="raise"){
@@ -77,8 +121,7 @@ function action(r,t,type,amount){
     if(!p.chips)p.allin=true;
     r.minRaise=Math.max(r.settings.bb,target-r.currentBet);
     r.currentBet=target; r.acted=new Set([t]);
-    p.lastAction=`레이즈 ${target.toLocaleString()}`;
-    addChat(r,"SYSTEM",`${p.name} · 레이즈 ${target.toLocaleString()}`,true);
+    p.lastAction=`레이즈 ${target.toLocaleString()}원`;
     announce(r,`레이즈 ${target.toLocaleString()}원`);
   } else if(type==="allin"){
     let target=p.bet+p.chips,add=p.chips;
@@ -87,8 +130,7 @@ function action(r,t,type,amount){
       r.minRaise=Math.max(r.settings.bb,target-r.currentBet);
       r.currentBet=target; r.acted=new Set([t]);
     }else r.acted.add(t);
-    p.lastAction=`올인 ${target.toLocaleString()}`;
-    addChat(r,"SYSTEM",`${p.name} · 올인 ${target.toLocaleString()}`,true);
+    p.lastAction=`올인 ${target.toLocaleString()}원`;
     announce(r,`올인 ${target.toLocaleString()}원`);
   }
 
@@ -122,9 +164,8 @@ function beginTurnTimer(r){
       r.countdownValue--;
       if(r.countdownValue<=0){
         clearTurnTimer(r);
-        addChat(r,"SYSTEM",`${p.name} · 시간초과 다이`,true);
         announce(r,"시간 초과. 다이");
-        p.lastAction="시간초과 다이";
+        p.lastAction="다이 (시간초과)";
         p.folded=true;r.acted.add(p.token);
         if(live(r).length<=1)return awardOne(r);
         if(roundDone(r))return advance(r);
@@ -135,10 +176,37 @@ function beginTurnTimer(r){
   },10000);
 }
 
-io.on("connection",s=>{s.on("create",d=>{let c=code();while(rooms.has(c))c=code();let pt=token(),settings={start:Math.max(1000,Math.min(100000,+d.start||10000)),sb:Math.max(10,+d.sb||50),bb:Math.max(20,+d.bb||100),max:Math.max(2,Math.min(6,+d.max||6))};if(settings.bb<settings.sb*2)settings.bb=settings.sb*2;let r={code:c,password:String(d.password||""),hostToken:pt,players:[],phase:"lobby",street:"",board:[],pot:0,dealer:-1,turn:-1,currentBet:0,minRaise:settings.bb,acted:new Set,msg:"",handNo:0,settings,chat:[],turnTimer:null,countdownTimer:null,turnDeadline:0,countdownValue:null};let cname=String(d.name||"").trim().slice(0,12);if(!cname)return s.emit("err","닉네임을 입력해주세요.");r.players.push({token:pt,socketId:s.id,name:cname,chips:settings.start,bet:0,total:0,cards:[],folded:false,allin:false,inHand:false,connected:true,lastAction:""});rooms.set(c,r);s.data={room:c,token:pt};s.join(c);addChat(r,"SYSTEM",`${r.players[0].name}님이 방을 만들었습니다.`,true);emit(r)});
-s.on("join",d=>{let r=rooms.get(String(d.code||"").toUpperCase());if(!r)return s.emit("err","방을 찾을 수 없습니다.");if(r.password&&r.password!==String(d.password||""))return s.emit("err","비밀번호가 다릅니다.");if(r.players.filter(p=>p.connected).length>=r.settings.max)return s.emit("err","방이 가득 찼습니다.");if(r.phase==="playing")return s.emit("err","현재 핸드 진행 중입니다. 핸드 종료 후 입장해주세요.");let jname=String(d.name||"").trim().slice(0,12);if(!jname)return s.emit("err","닉네임을 입력해주세요.");let pt=token();r.players.push({token:pt,socketId:s.id,name:jname,chips:r.settings.start,bet:0,total:0,cards:[],folded:false,allin:false,inHand:false,connected:true,lastAction:""});s.data={room:r.code,token:pt};s.join(r.code);addChat(r,"SYSTEM",`${r.players[r.players.length-1].name}님이 입장했습니다.`,true);announce(r,`${r.players[r.players.length-1].name}님이 입장했습니다.`);emit(r)});
+io.on("connection",s=>{s.on("create",d=>{let c=code();while(rooms.has(c))c=code();let pt=token(),settings={start:Math.max(1000,Math.min(100000,+d.start||10000)),sb:Math.max(10,+d.sb||50),bb:Math.max(20,+d.bb||100),max:Math.max(2,Math.min(6,+d.max||6))};if(settings.bb<settings.sb*2)settings.bb=settings.sb*2;let r={code:c,password:String(d.password||""),hostToken:pt,players:[],phase:"lobby",street:"",board:[],pot:0,dealer:-1,turn:-1,currentBet:0,minRaise:settings.bb,acted:new Set,msg:"",handNo:0,settings,chat:[],turnTimer:null,countdownTimer:null,turnDeadline:0,countdownValue:null};let cname=String(d.name||"").trim().slice(0,12);if(!cname)return s.emit("err","닉네임을 입력해주세요.");r.players.push({token:pt,socketId:s.id,name:cname,chips:settings.start,bet:0,total:0,cards:[],folded:false,allin:false,inHand:false,connected:true,lastAction:""});rooms.set(c,r);s.data={room:c,token:pt};s.join(c);emit(r)});
+s.on("join",d=>{let r=rooms.get(String(d.code||"").toUpperCase());if(!r)return s.emit("err","방을 찾을 수 없습니다.");if(r.password&&r.password!==String(d.password||""))return s.emit("err","비밀번호가 다릅니다.");if(r.players.filter(p=>p.connected).length>=r.settings.max)return s.emit("err","방이 가득 찼습니다.");if(r.phase==="playing")return s.emit("err","현재 핸드 진행 중입니다. 핸드 종료 후 입장해주세요.");let jname=String(d.name||"").trim().slice(0,12);if(!jname)return s.emit("err","닉네임을 입력해주세요.");let pt=token();r.players.push({token:pt,socketId:s.id,name:jname,chips:r.settings.start,bet:0,total:0,cards:[],folded:false,allin:false,inHand:false,connected:true,lastAction:""});s.data={room:r.code,token:pt};s.join(r.code);announce(r,`${r.players[r.players.length-1].name}님이 입장했습니다.`);emit(r)});
 s.on("start",()=>{let r=rooms.get(s.data?.room);if(r&&r.hostToken===s.data.token&&r.phase!=="playing")start(r)});
 s.on("act",d=>{let r=rooms.get(s.data?.room);if(r)action(r,s.data.token,d.type,d.amount)});
+s.on("leaveRoom",()=>{
+  const r=rooms.get(s.data?.room);
+  if(!r)return;
+  if(r.phase==="playing"){
+    return s.emit("err","게임 진행 중에는 나갈 수 없습니다.");
+  }
+  const idx=r.players.findIndex(x=>x.token===s.data.token);
+  if(idx<0)return;
+  const leaving=r.players[idx];
+  r.players.splice(idx,1);
+
+  if(r.hostToken===leaving.token){
+    const nextHost=r.players.find(x=>x.connected);
+    r.hostToken=nextHost?nextHost.token:null;
+  }
+
+  s.leave(r.code);
+  s.data={};
+  s.emit("leftRoom");
+
+  if(!r.players.some(x=>x.connected)){
+    clearTurnTimer(r);
+    rooms.delete(r.code);
+    return;
+  }
+  emit(r);
+});
 s.on("chat",d=>{
   const r=rooms.get(s.data?.room); if(!r)return;
   const p=r.players.find(x=>x.token===s.data.token&&x.connected); if(!p)return;
