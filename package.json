@@ -1,0 +1,17 @@
+{
+  "name": "minguk-holdem-multiplayer",
+  "version": "2.0.0",
+  "private": true,
+  "description": "민국 홀덤 온라인 친구대전 - 2~6명, 방 비밀번호, 방장 설정, 초대 링크",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "socket.io": "^4.8.1"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
