@@ -196,7 +196,7 @@ input[type=range]{padding:0;width:130px}
 <div class="w">
   <div class="head">
     <h2>♠ 민국 홀덤</h2>
-    <div class="headBtns"><button id="sound" class="soundBtn">🔊 효과음 ON</button><button id="voice" class="soundBtn">🗣 음성 ON</button><span class="tag">ONLINE v4</span></div>
+    <div class="headBtns"><button id="sound" class="soundBtn">🔊 효과음 ON</button><button id="voice" class="soundBtn">🗣 음성 시작</button><span class="tag">ONLINE v11</span></div>
   </div>
 
   <div id="lobby" class="p"><div id="normalLobby">
@@ -263,40 +263,41 @@ input[type=range]{padding:0;width:130px}
 <script src="/socket.io/socket.io.js"></script>
 <script>
 const s=io(),$=x=>document.getElementById(x),money=n=>(n||0).toLocaleString("ko-KR");
-let st=null, prev=null, soundOn=true, voiceOn=true, audioCtx=null, chatInitialized=false,turnTick=null,lastSpokenCountdown=null;
-let speechQueue=[], speechBusy=false;
-function runSpeechQueue(){
-  if(speechBusy||!speechQueue.length||!voiceOn||!("speechSynthesis" in window))return;
-  speechBusy=true;
-  const item=speechQueue.shift();
+let st=null, prev=null, soundOn=true, voiceOn=false, voiceUnlocked=false, audioCtx=null, chatInitialized=false,turnTick=null,lastSpokenCountdown=null;
+let cachedVoices=[];
+function refreshVoices(){
+  try{cachedVoices=window.speechSynthesis?.getVoices?.()||[]}catch(e){cachedVoices=[]}
+}
+if("speechSynthesis" in window){
+  refreshVoices();
+  window.speechSynthesis.onvoiceschanged=refreshVoices;
+}
+function chooseVoice(lang){
+  const target=(lang||"ko-KR").toLowerCase();
+  const prefix=target.split("-")[0];
+  return cachedVoices.find(v=>(v.lang||"").toLowerCase()===target)
+      || cachedVoices.find(v=>(v.lang||"").toLowerCase().startsWith(prefix))
+      || cachedVoices[0]||null;
+}
+function speak(text,lang="ko-KR",rate=.92,force=false){
+  if(!("speechSynthesis" in window)||!text)return false;
+  if(!force&&(!voiceOn||!voiceUnlocked))return false;
   try{
     const synth=window.speechSynthesis;
+    synth.cancel();
     synth.resume();
-    const u=new SpeechSynthesisUtterance(item.text);
-    u.lang=item.lang||"ko-KR";
-    u.rate=item.rate||0.95;
-    u.pitch=1;
-    u.volume=1;
-    const voices=synth.getVoices();
-    const langPrefix=u.lang.split("-")[0];
-    const v=voices.find(v=>v.lang===u.lang)||voices.find(v=>v.lang&&v.lang.startsWith(langPrefix));
-    if(v)u.voice=v;
-    u.onend=u.onerror=()=>{speechBusy=false;setTimeout(runSpeechQueue,40)};
+    const u=new SpeechSynthesisUtterance(String(text));
+    u.lang=lang;u.rate=rate;u.pitch=1;u.volume=1;
+    const v=chooseVoice(lang);if(v)u.voice=v;
     synth.speak(u);
-  }catch(e){speechBusy=false;setTimeout(runSpeechQueue,40)}
-}
-function speak(text,lang="ko-KR",rate=.95){
-  if(!voiceOn||!("speechSynthesis" in window)||!text)return;
-  speechQueue.push({text,lang,rate});
-  runSpeechQueue();
+    return true;
+  }catch(e){console.error("TTS",e);return false}
 }
 function actionSpeech(text){
   let t=String(text||"").trim();
-  // 화면 표기는 유지하고, 음성은 홀덤 용어가 또렷하게 들리도록 정리
   t=t.replace(/FOLD/gi,"다이").replace(/CHECK/gi,"체크").replace(/CALL/gi,"콜")
-     .replace(/RAISE/gi,"레이스").replace(/ALL[- ]?IN/gi,"올인")
-     .replace(/(\d[\d,]*)\s*칩/g,"$1 칩");
-  speak(t,"ko-KR",.90);
+     .replace(/RAISE/gi,"레이스").replace(/ALL[- ]?IN/gi,"올인");
+  return speak(t,"ko-KR",.88);
 }
 const q=new URLSearchParams(location.search);
 const invitedRoom=(q.get("room")||"").toUpperCase();
@@ -330,14 +331,19 @@ function fx(name){
 }
 $("sound").onclick=()=>{soundOn=!soundOn;$("sound").textContent=soundOn?"🔊 효과음 ON":"🔇 효과음 OFF";if(soundOn){unlockAudio();fx("click")}};
 $("voice").onclick=()=>{
+  if(!("speechSynthesis" in window)){
+    alert("이 브라우저는 음성 안내를 지원하지 않습니다.");
+    return;
+  }
+  refreshVoices();
+  voiceUnlocked=true;
   voiceOn=!voiceOn;
-  $("voice").textContent=voiceOn?"🗣 음성 ON":"🔇 음성 OFF";
   if(voiceOn){
-    try{window.speechSynthesis?.resume()}catch(e){}
-    speak("음성 안내를 시작합니다","ko-KR",.92);
+    $("voice").textContent="🗣 음성 ON";
+    setTimeout(()=>speak("음성 안내를 시작합니다","ko-KR",.90,true),50);
   }else{
-    speechQueue=[];speechBusy=false;
-    try{window.speechSynthesis?.cancel()}catch(e){}
+    $("voice").textContent="🔇 음성 OFF";
+    try{window.speechSynthesis.cancel()}catch(e){}
   }
 };
 
@@ -455,22 +461,8 @@ function soundFromState(a,b){
 
 
 function speakCountdownNumber(n){
-  if(!voiceOn||!("speechSynthesis" in window))return;
   const words={5:"Five",4:"Four",3:"Three",2:"Two",1:"One"};
-  const word=words[n];
-  if(!word)return;
-  try{
-    const synth=window.speechSynthesis;
-    synth.resume();
-    const u=new SpeechSynthesisUtterance(word);
-    u.lang="en-US";u.rate=.9;u.pitch=1;
-    const voices=synth.getVoices();
-    const en=voices.find(v=>/en-US/i.test(v.lang))||voices.find(v=>/^en/i.test(v.lang));
-    if(en)u.voice=en;
-    // 카운트다운은 현재 액션 음성을 끊지 않고 큐에 넣는다.
-    speak(word,"en-US",.88);
-    return;
-  }catch(e){}
+  if(words[n])speak(words[n],"en-US",.82);
 }
 function updateTurnTimer(){
   if(!st){return}
